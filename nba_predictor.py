@@ -32,6 +32,11 @@ The second command also predicts any upcoming unplayed games.
 """
 
 import argparse
+import json
+from pathlib import Path
+from league_config import LEAGUE
+from player_engine import PlayerHistory, FEATURES as PLAYER_FEATURES, add_player_features, load_release, load_rosters, normalize_boxes
+from awards_predictor import run_awards
 from confidence_check import show_confidence_check
 from datetime import datetime, timezone
 from console_output import show_predictions
@@ -42,6 +47,8 @@ import pandas as pd
 
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score,
     brier_score_loss,
@@ -58,7 +65,7 @@ from sportsdataverse.nba import load_nba_schedule
 # NBA seasons use their ending year: 2027 means 2026-27.
 _today = datetime.now(timezone.utc)
 _season_end = _today.year + (_today.month >= 7)
-SEASONS = list(range(_season_end - 6, _season_end + 1))
+SEASONS = list(range(2018, _season_end + 1))
 
 ELO_K = 20
 ELO_HOME_ADVANTAGE = 65
@@ -155,7 +162,7 @@ FEATURE_COLUMNS = (
     + [f"winpct_diff_{window}" for window in ROLLING_WINDOWS]
     + [f"pdiff_diff_{window}" for window in ROLLING_WINDOWS]
     # Player-stat differences
-    + [f"player_{stat}_diff" for stat in PLAYER_STAT_COLUMNS]
+    + PLAYER_FEATURES
 )
 
 
@@ -164,7 +171,7 @@ FEATURE_COLUMNS = (
 # =============================================================================
 
 
-def load_games(seasons):
+def load_games(seasons, offline=False):
     """
     Load NBA schedule/results data for the requested seasons.
 
@@ -173,10 +180,7 @@ def load_games(seasons):
     """
     print(f"Loading NBA schedule data for seasons: {seasons}...")
 
-    games = load_nba_schedule(
-        seasons=seasons,
-        return_as_pandas=True,
-    )
+    games = load_release(LEAGUE, 'schedule', seasons, offline=offline)
     
     columns_to_keep = [
         "game_id",
@@ -201,7 +205,20 @@ def load_games(seasons):
     games = games[columns_to_keep].drop_duplicates("game_id").copy()
     games["date"] = pd.to_datetime(games["date"], utc=True)
 
+    completed = games['status_type_completed'].fillna(False).astype(bool)
+    games['status_type_completed'] = completed
+    for score in ['home_score','away_score']:
+        games[score] = pd.to_numeric(games[score], errors='coerce')
+    invalid = completed & (games.home_score.isna() | games.away_score.isna() | (games.home_score == games.away_score))
+    if invalid.any():
+        print(f"Skipped {invalid.sum()} completed games without a valid final score.")
+    games = games[~invalid].copy()
+    games['home_winner'] = games.home_score > games.away_score
+    games['away_winner'] = games.away_score > games.home_score
     games = remove_exhibition_games(games)
+    games = games[~games['home_display_name'].str.strip().str.lower().isin(['tbd','tba','unknown'])
+                  & ~games['away_display_name'].str.strip().str.lower().isin(['tbd','tba','unknown'])]
+    games = games.drop_duplicates('game_id')
     games = remove_stale_unplayed_games(games)
 
     games = (
@@ -451,79 +468,14 @@ def get_head_to_head_performance(team_id, opponent_id, game_log):
 # PLAYER STATISTICS
 # =============================================================================
 
-def load_player_stats(path=PLAYER_STATS_FILE):
-    """
-    Load player statistics if a player_stats.csv file is available.
-
-    Expected columns:
-        date, team_id, plus the columns in PLAYER_STAT_COLUMNS.
-
-    Optional:
-        game_id, player_id, player_name.
-
-    Statistics are aggregated by team/date. Only rows dated before a game are
-    used, preventing the model from seeing statistics from the game it predicts.
-    """
-    try:
-        stats = pd.read_csv(path)
-    except FileNotFoundError:
-        print(
-            f"Player stats file '{path}' was not found. "
-            "Player features will use neutral defaults."
-        )
-        return pd.DataFrame()
-
-    required = {"date", "team_id"}
-    missing = required - set(stats.columns)
-    if missing:
-        raise ValueError(
-            f"Player stats file is missing required columns: {sorted(missing)}"
-        )
-
-    stats = stats.copy()
-    stats["date"] = pd.to_datetime(stats["date"])
-
-    for column in PLAYER_STAT_COLUMNS:
-        if column not in stats.columns:
-            stats[column] = 0.0
-        stats[column] = pd.to_numeric(stats[column], errors="coerce").fillna(0.0)
-
-    # Aggregate player production to team level for each date.
-    # Percentages are averaged across player rows; counting stats are summed.
-    aggregation = {}
-    for column in PLAYER_STAT_COLUMNS:
-        aggregation[column] = "mean" if column.endswith("_pct") else "sum"
-
-    return (
-        stats.groupby(["team_id", "date"], as_index=False)
-        .agg(aggregation)
-        .sort_values(["team_id", "date"])
-        .reset_index(drop=True)
-    )
-
-
-def get_player_features(team_id, current_date, player_stats):
-    """
-    Return the latest available team-level player statistics before current_date.
-    """
-    if player_stats.empty:
-        return {f"player_{stat}": 0.0 for stat in PLAYER_STAT_COLUMNS}
-
-    history = player_stats[
-        (player_stats["team_id"] == team_id)
-        & (player_stats["date"] < current_date)
-    ]
-
-    if history.empty:
-        return {f"player_{stat}": 0.0 for stat in PLAYER_STAT_COLUMNS}
-
-    latest_date = history["date"].max()
-    latest = history[history["date"] == latest_date].iloc[-1]
-
-    return {
-        f"player_{stat}": float(latest[stat])
-        for stat in PLAYER_STAT_COLUMNS
-    }
+def load_player_stats(games, seasons, offline=False):
+    print("Loading player box scores and current roster snapshots...")
+    raw = load_release(LEAGUE, 'player_boxscore', seasons, offline=offline)
+    boxes = normalize_boxes(raw, games)
+    rosters = load_rosters(LEAGUE, seasons, offline=offline)
+    if boxes.empty:
+        raise ValueError("No completed player box scores available; cannot train player features.")
+    return PlayerHistory(boxes, LEAGUE, rosters)
 
 
 # =============================================================================
@@ -717,7 +669,8 @@ def compute_features(games, player_stats=None):
     last_season_seen = {}
 
     if player_stats is None:
-        player_stats = pd.DataFrame()
+        player_stats = PlayerHistory(pd.DataFrame(), LEAGUE)
+    games = games.sort_values('date', kind='stable')
 
     game_log = {}
     playoff_log = {}
@@ -811,17 +764,10 @@ def compute_features(games, player_stats=None):
         # Player statistics
         # ---------------------------------------------------------------------
 
-        home_player_stats = get_player_features(
-            home_id,
-            game["date"],
-            player_stats,
-        )
-
-        away_player_stats = get_player_features(
-            away_id,
-            game["date"],
-            player_stats,
-        )
+        player_stats.before(game['date'])
+        forecast = not bool(game['status_type_completed'])
+        home_player_stats = player_stats.features(home_id, int(season), forecast=forecast)
+        away_player_stats = player_stats.features(away_id, int(season), forecast=forecast)
 
         # ---------------------------------------------------------------------
         # Create pre-game feature row
@@ -842,6 +788,7 @@ def compute_features(games, player_stats=None):
             away_player_stats=away_player_stats,
         )
 
+        add_player_features(feature_row, home_player_stats, away_player_stats)
         feature_rows.append(feature_row)
 
         # ---------------------------------------------------------------------
@@ -872,8 +819,8 @@ def compute_features(games, player_stats=None):
 def create_models():
     """Create the models used for comparison."""
     return {
-        "Logistic Regression": LogisticRegression(
-            max_iter=1000
+        "Logistic Regression": make_pipeline(
+            StandardScaler(), LogisticRegression(max_iter=3000, random_state=RANDOM_STATE)
         ),
         "Gradient Boosting": GradientBoostingClassifier(
             random_state=RANDOM_STATE
@@ -914,6 +861,7 @@ def evaluate_model(
 
 def get_feature_importance(model):
     """Extract feature importance from the trained model."""
+    model = model.steps[-1][1] if hasattr(model, "steps") else model
     if hasattr(model, "feature_importances_"):
         return pd.Series(
             model.feature_importances_,
@@ -1185,6 +1133,7 @@ def parse_arguments():
                         help="Season ending years, e.g. 2025 2026 2027.")
     parser.add_argument("--test-season", type=int, default=None,
                         help="Validation season; defaults to latest season with completed games.")
+    parser.add_argument("--offline", action="store_true", help="Use the last successfully downloaded team/player releases.")
     return parser.parse_args()
 
 
@@ -1198,14 +1147,23 @@ def main():
     args = parse_arguments()
 
     # 1. Load historical and upcoming games.
-    games = load_games(args.seasons)
+    games = load_games(args.seasons, offline=args.offline)
 
     # 2. Load player statistics and generate pre-game features.
-    player_stats = load_player_stats()
+    player_stats = load_player_stats(games, args.seasons, offline=args.offline)
     feature_df, elo_ratings = compute_features(
         games,
         player_stats=player_stats,
     )
+
+    player_records, player_ratings = player_stats.export()
+    feature_df.to_csv(FEATURE_OUTPUT_FILE, index=False)
+    metadata = dict(league=LEAGUE, refreshed_at=str(pd.Timestamp.now(tz='UTC')),
+                    offline=bool(args.offline), target_season=int(games.season.max()),
+                    latest_player_game=str(player_records.date.max()),
+                    completed_games=int(games.status_type_completed.sum()),
+                    player_games=int(player_records.game_id.nunique()))
+    Path('data_refresh.json').write_text(json.dumps(metadata, indent=2))
 
     # 3. Train and evaluate models.
     model, model_name = train_and_evaluate(
@@ -1217,6 +1175,8 @@ def main():
 
     # 5. Optionally predict upcoming games.
     predict_upcoming(feature_df, model, verbose=args.verbose)
+
+    run_awards(player_records, LEAGUE, int(games.season.max()), verbose=args.verbose)
 
     # 6. Save feature data.
     feature_df.to_csv(

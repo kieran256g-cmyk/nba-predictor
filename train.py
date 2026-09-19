@@ -1,4 +1,5 @@
 import argparse
+import sys
 from confidence_check import show_confidence_check
 import nba_predictor as engine
 from model_output import show_saved_diagnostics
@@ -190,10 +191,16 @@ def get_predicted_winner(row):
 
 def main():
     """Train the model and generate predictions."""
+    if '--cached-features' not in sys.argv:
+        engine.main()
+        return
     parser = argparse.ArgumentParser(description="Train and predict NBA games.")
     parser.add_argument("--verbose", action="store_true", help="Show the full upcoming schedule instead of each team's next game.")
+    parser.add_argument('--cached-features', action='store_true', help='Retrain game model from saved features without refreshing players or awards.')
     args = parser.parse_args()
     data = load_data()
+    if set(FEATURES) - set(data.columns):
+        raise SystemExit('Saved features predate the player upgrade; run without --cached-features first.')
 
     model, model_name, results = train_time_split(data, verbose=True)
 

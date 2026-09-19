@@ -1,12 +1,13 @@
-# NBA Game Winner Predictor
+# NBA Game and Player Predictor
 
-An NBA version of the WNBA predictor, using pre-game Elo ratings, recent form,
-rest, head-to-head history and optional player statistics. It compares logistic
-regression and gradient boosting, then predicts upcoming game winners.
+Predicts game winners using team Elo, form, rest, head-to-head history,
+automatically refreshed player statistics and custom individual Elo ratings.
+Also ranks candidates for **MVP, Rookie of the Year, Defensive Player of the Year
+and Most Improved Player**, using historical award winners.
 
-## Setup and run
+## Install and run
 
-Requires Python 3.10 or newer and internet access to refresh schedule data.
+Python 3.10+ and internet access are required for a fresh run.
 
 ```powershell
 git clone https://github.com/kieran256g-cmyk/nba-predictor.git
@@ -14,118 +15,154 @@ cd nba-predictor
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python nba_predictor.py --predict-next
-```
-
-On macOS/Linux, activate with `source .venv/bin/activate` instead.
-
-The first run downloads NBA schedules, creates `nba_features.csv`, evaluates
-models, and writes every upcoming prediction to `predictions.csv`. The console
-shows model accuracy, log loss, Brier score, feature importance, Elo rankings,
-and each team's next game. Use `--verbose` to display the full upcoming schedule:
-
-```bash
-python nba_predictor.py --predict-next --verbose
-```
-
-NBA seasons use their **ending year**: `2027` means the 2026–27 season. Defaults
-cover seven seasons through the current/upcoming season. To choose explicitly:
-
-```bash
-python nba_predictor.py --seasons 2024 2025 2026 2027 --test-season 2026 --predict-next
-```
-
-At least two seasons containing completed games are needed for season-based
-evaluation. Missing published seasons are reported by the data loader.
-
-To retrain using the saved feature dataset without downloading again:
-
-```bash
 python train.py
-python train.py --verbose
 ```
 
-Refresh with `nba_predictor.py --predict-next` as results arrive. `train.py`
-uses the saved snapshot; it cannot learn outcomes that are not in that file.
+On macOS/Linux activate with `source .venv/bin/activate` instead.
+**Press Run on either `train.py` or `nba_predictor.py`: both now refresh team
+schedules, player box scores and roster snapshots together**, rebuild features,
+update player ratings, train game models and refresh the awards rankings.
+The initial download covers seasons from 2018 onward and can take a few minutes.
 
-## Features and evaluation
+```bash
+python nba_predictor.py
+python nba_predictor.py --verbose
+python nba_predictor.py --offline
+python train.py --cached-features
+python awards_predictor.py
+```
 
-- Elo difference, including home advantage in the rating update and seasonal regression.
-- Win percentage and point differential over the last 5 and 10 completed games.
-- Rest difference, neutral site, and prior head-to-head results.
-- A playoff Elo adjustment derived from earlier playoff results.
-- Optional player-stat differences; neutral defaults when no file is supplied.
+`--verbose` shows every upcoming game and more award candidates. Normal output
+includes model comparisons, the probability confidence check, feature importance,
+team Elo rankings, ten player ratings and each team's next game (shared matchups
+once), followed by three candidates per award. `--predict-next` still works but
+is no longer necessary.
 
-Features are recorded before each game updates team history. Scores and the
-winner are labels/outcomes, not input features. Preseason, All-Star teams and
-unresolved TBD opponents are excluded; regular-season, postseason and play-in
-games between NBA franchises are retained.
+`--offline` explicitly reuses downloaded releases for the full pipeline.
+`--cached-features` is the old saved-feature game-model-only workflow; it does not
+refresh player data or awards. Old feature CSVs must be rebuilt once after upgrading.
+Network failures stop a fresh run rather than silently claiming cached data is new.
 
-`nba_predictor.py` trains on earlier seasons and selects the model by accuracy
-on the latest season with completed games (or `--test-season`). `train.py` uses
-a chronological 80/20 split. Both report accuracy, log loss and Brier score on every run, then refit the chosen model on all completed games for forecasts.
-The selection-set score is validation performance, not an independent final test.
+Use `--seasons` to choose season years and `--test-season` to choose the game
+validation season. NBA years identify the ending year (2027 = 2026–27); WNBA
+years identify the calendar year. Keep 2018 as a warm-up year for the bundled
+award history and rookie inference. Shorter history reduces what can be trained.
 
-Upcoming predictions use the information currently available. Distant games
-do not simulate intervening outcomes. Elo parameters are inherited starting
-values from the WNBA project and have not been tuned specifically for the NBA.
+## Player statistics
 
-## Optional player data
+SportsDataverse player box scores are matched to completed scheduled games.
+Duplicate appearances, DNPs, games without final scores and unresolved opponents
+do not become player updates. Points, rebounds, assists, steals, blocks, turnovers,
+minutes and shooting percentages enter the game model as home-minus-away features.
 
-Place `player_stats.csv` beside the scripts with columns `date`, `team_id`,
-`points`, `rebounds`, `assists`, `steals`, `blocks`, `turnovers`, `fg_pct`,
-`three_pct`, `ft_pct`, and `minutes`. Use ESPN NBA team IDs. Only rows dated
-strictly before the predicted game are used. Counting statistics are summed
-by team/date, percentages averaged, and the latest prior team row is used.
-No injuries, roster changes or player data are fetched automatically.
+For each player, rolling averages use the last **5 and 10 played games**.
+The historical team projection uses players seen in its last five games, excluding
+players subsequently observed with another team. Player counting-stat projections
+are scaled to one team's regulation minutes (240 NBA / 200 WNBA); shooting
+percentages use total makes divided by attempts, not an average of percentages.
+The existing `player_*_diff` features retain the five-game projection; windowed
+`player_*_diff_5` and `player_*_diff_10` columns are also exported.
 
-## Files
+The next game's player features are taken **before** that game updates history.
+Current roster snapshots are applied only to unplayed forecasts, never to historical
+training rows. Players keep their histories and ratings across trades. New players
+start neutral, and `player_history_coverage_diff` identifies incomplete history.
+Expected minutes come from prior appearances; injuries, confirmed lineups and
+future workload changes are not forecast. Roster releases can lag transactions.
 
-- `nba_predictor.py`: NBA schedule loading, feature generation, evaluation and forecasts.
-- `train.py`: retraining and forecasts from the saved feature dataset.
-- `console_output.py`: compact prediction formatting.
-- `test_predictor.py`: offline checks for filtering, feature timing and output.
-- `nba_features.csv`, `predictions.csv`: generated locally, excluded from Git.
+## Individual player Elo adjustment
 
-Run checks with `python -m unittest -v`.
+Each player begins at **1500**. After a completed appearance, the rating receives:
 
-Schedule data comes from the [SportsDataverse NBA datasets](https://github.com/sportsdataverse/sportsdataverse-data),
-loaded through [sportsdataverse for Python](https://py.sportsdataverse.org/).
-Predictions are estimates, not guarantees; source coverage and data quality affect results.
+- An outcome update: `20 × participation × (win − expected_win)`.
+- A box-score adjustment: `0.05 × participation × (performance_target − old_rating)`.
 
-### Each team's next game
+Participation is minutes divided by regulation game length, capped at one.
+Expected win uses each side's pre-game, minutes-weighted player ratings and
+a 65-point home advantage. The box-score target is
+`1500 + clip((GameScore_per_36 − 12) × 12, −200, 200)`; Game Score uses points,
+shooting, rebounds, assists, steals, blocks, turnovers and fouls. Ratings regress
+25% toward 1500 when a player enters a new season.
 
-Both leagues use the same columns: Date, Away, Home, Pick, Confidence.
-There is no five-game limit. Games are sorted chronologically, and the first
-future fixture for every team in the loaded schedule is included. A shared
-fixture appears once. An opponent can appear again when that later fixture is
-another team's next game; this ensures no team's actual next game is skipped.
+`player_elo_adjustment = player_elo − 1500`. The game model learns a separate
+`player_elo_adjustment_diff` from projected minutes-weighted team averages.
+It is not added a second time to the original team Elo calculation.
+These are **custom, untuned Elo-style ratings**, not official ratings or causal
+estimates of individual impact. Last-game minutes are used only in the post-game
+rating update; forecast weights use prior appearances.
 
-The next available games can be in the current season or the upcoming season.
-Teams without a published upcoming fixture cannot be listed. Refresh the
-schedule when new fixtures are published. Past fixtures are excluded from the
-console list. Full predictions remain in `predictions.csv`; `--verbose` shows
-the full upcoming schedule and detailed diagnostics.
+## Awards model
 
-### Press Run
+`award_history.csv` contains sourced winner labels: NBA 2019–2026 and WNBA
+2019–2025, including both 2025 WNBA DPOY winners. Each award has a regularized
+logistic ranking model fitted to earlier seasons only. Features include regular-season
+per-game production, efficiency, team win rate, availability, player Elo, previous
+awards and changes from the immediately preceding season. Postseason stats are
+excluded from award season aggregates.
 
-Run either `train.py` (saved data) or `nba_predictor.py` (refresh data)
-without arguments to see the model results, feature importance, Elo rankings and
-each team's next game. `--predict-next` remains accepted for older commands.
+ROY candidates are inferred from their first recorded league season since 2018;
+the first dataset season is excluded. Returning veterans absent from the earlier
+data can be misclassified, so this is not official rookie eligibility certification.
+MIP candidates must have a prior-season comparison and cannot be inferred rookies.
+NBA exports also show the standard 65-game/20-minute eligibility count, including
+up to two 15–19-minute appearances. Exceptions and injury grievances are not
+automatically decided; eligibility notes are informational, not a final ruling.
 
-### Confidence check
+**Model scores are relative ranking scores, not award-winning probabilities.**
+The top candidate is anchored at 100; scores are not calibrated and should not be
+compared between awards. Historical walk-forward checks train on earlier seasons
+and report top-pick and top-three hits for later seasons. Those checks use full-season
+stats, so they are not evidence of preseason forecast accuracy. Sample sizes are
+small and the results vary substantially between awards.
 
-Every run compares the selected model's confidence with actual wins on its
-chronological validation games, before retraining. The table groups the picked
-team's probability into 50–<60%, 60–<70%, 70–<80%, 80–<90%, and 90–100% bands.
-Home and away picks both count. Each row shows games, wins, average predicted
-confidence, actual win rate, and the difference in percentage points.
+If the target season has not started, MVP/DPOY/MIP output is explicitly a preseason
+watchlist based on the last season's statistics. ROY waits for rookie appearances;
+the model does not invent professional stats for unplayed rookies. During a season,
+rankings update with every data refresh. To inspect another target season from the
+saved data, use `python awards_predictor.py --season YEAR`.
 
-For example, an average predicted confidence of 70% and an actual win rate of
-70% means the probabilities matched outcomes in that group. A negative gap means
-overconfidence; a positive gap means underconfidence. Compare with the group's
-average probability, not just its lower bound. Empty groups show a dash, and
-groups below 30 games are flagged as small samples (not a statistical test).
+Winner labels are a reviewed snapshot, not scraped blindly on each run. Add newly
+announced winners to `award_history.csv` with a source URL; unmatched winner names
+raise an error instead of silently becoming negative training labels.
 
-These games also select the best model, so this is a validation diagnostic,
-not an independent final test. The check does not adjust forecast probabilities.
+## Game evaluation and confidence
+
+The refreshed pipeline evaluates on the latest season with completed games (or
+`--test-season`) using only earlier seasons for fitting. It compares logistic
+regression with feature scaling and gradient boosting. After choosing a model,
+it refits on all completed games for forecasts. `--cached-features` instead retains
+the chronological 80/20 evaluation path.
+
+The confidence table checks home and away picks on held-out validation games
+before refitting: confidence band, sample size, wins, average predicted chance,
+actual win rate and percentage-point gap. These same games select the model,
+so this is a validation diagnostic rather than an independent final test.
+The new player features are not assumed to improve accuracy; inspect these results.
+
+## Generated files
+
+| File | Contents |
+|---|---|
+| `nba_features.csv` | Pre-game team and player features |
+| `predictions.csv` | Full upcoming game predictions |
+| `player_game_stats.csv` | Played appearances and post-game player Elo changes |
+| `player_ratings.csv` | All observed players, last-game ratings, current roster flags |
+| `player_season_stats.csv` | Regular-season player totals/averages for awards |
+| `award_predictions.csv` | Candidate ranks, scores, eligibility notes and training dates |
+| `award_backtest.csv` | Historical season-by-season award checks |
+| `data_refresh.json` | Refresh mode, timestamp, target season and data coverage |
+| `data/cache/` | Downloaded team, player and roster releases for offline runs |
+
+Generated files are local and excluded from Git. Run tests with `python -m unittest -v`.
+They cover future-data isolation, rating updates, trades, shooting aggregation,
+award labels, co-winners, season splits and the existing output/confidence checks.
+
+## Sources
+
+- [SportsDataverse datasets](https://github.com/sportsdataverse/sportsdataverse-data)
+  and [Python package](https://py.sportsdataverse.org/), sourced from ESPN.
+- Official NBA and WNBA award-history pages and announcements, linked on every
+  row of `award_history.csv`.
+- [NBA eligibility summary](https://cms.nba.com/wp-content/uploads/sites/4/2024/11/2024-25-CBA-101.pdf).
+
+Prediction quality depends on source coverage, lineup changes and model assumptions.

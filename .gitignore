@@ -1,9 +1,13 @@
 __pycache__/
 *.py[cod]
 .venv/
-venv/
 .env
-.DS_Store
+data/cache/
+*_features.csv
 predictions.csv
-nba_features.csv
-player_stats.csv
+player_game_stats.csv
+player_ratings.csv
+player_season_stats.csv
+award_predictions.csv
+award_backtest.csv
+data_refresh.json
