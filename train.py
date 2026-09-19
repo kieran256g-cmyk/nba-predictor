@@ -1,4 +1,6 @@
 import argparse
+import nba_predictor as engine
+from model_output import show_saved_diagnostics
 from console_output import show_predictions
 
 import pandas as pd
@@ -186,12 +188,13 @@ def get_predicted_winner(row):
 def main():
     """Train the model and generate predictions."""
     parser = argparse.ArgumentParser(description="Train and predict NBA games.")
-    parser.add_argument("--verbose", action="store_true", help="Show all model metrics and predictions.")
+    parser.add_argument("--verbose", action="store_true", help="Show the full upcoming schedule instead of each team's next game.")
     args = parser.parse_args()
     data = load_data()
 
-    model, model_name, results = train_time_split(data, verbose=args.verbose)
+    model, model_name, results = train_time_split(data, verbose=True)
 
+    show_saved_diagnostics(pd.read_csv(DATA_PATH), model, FEATURES, engine)
     predict_games(model, verbose=args.verbose)
 
 

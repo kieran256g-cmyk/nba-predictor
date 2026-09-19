@@ -1171,12 +1171,12 @@ def parse_arguments():
     parser.add_argument(
         "--predict-next",
         action="store_true",
-        help="Predict upcoming unplayed games.",
+        help="Predict upcoming unplayed games (also enabled by default).",
     )
 
     parser.add_argument(
         "--verbose", action="store_true",
-        help="Show Elo rankings, model diagnostics, and all predictions.",
+        help="Show the full upcoming schedule instead of each team's next game.",
     )
     parser.add_argument("--seasons", nargs="+", type=int, default=SEASONS,
                         help="Season ending years, e.g. 2025 2026 2027.")
@@ -1206,20 +1206,14 @@ def main():
 
     # 3. Train and evaluate models.
     model, model_name = train_and_evaluate(
-        feature_df, verbose=args.verbose, test_season=args.test_season
+        feature_df, verbose=True, test_season=args.test_season
     )
 
     # 4. Display current Elo rankings.
-    if args.verbose:
-        show_power_rankings(elo_ratings, feature_df)
+    show_power_rankings(elo_ratings, feature_df)
 
     # 5. Optionally predict upcoming games.
-    if args.predict_next:
-        predict_upcoming(
-            feature_df,
-            model,
-            verbose=args.verbose,
-        )
+    predict_upcoming(feature_df, model, verbose=args.verbose)
 
     # 6. Save feature data.
     feature_df.to_csv(

@@ -21,8 +21,8 @@ On macOS/Linux, activate with `source .venv/bin/activate` instead.
 
 The first run downloads NBA schedules, creates `nba_features.csv`, evaluates
 models, and writes every upcoming prediction to `predictions.csv`. The console
-shows the selected model and each team's next scheduled game, with shared matchups listed once. Elo rankings, feature
-importance and full prediction tables appear only with `--verbose`:
+shows model accuracy, log loss, Brier score, feature importance, Elo rankings,
+and each team's next game. Use `--verbose` to display the full upcoming schedule:
 
 ```bash
 python nba_predictor.py --predict-next --verbose
@@ -63,8 +63,7 @@ games between NBA franchises are retained.
 
 `nba_predictor.py` trains on earlier seasons and selects the model by accuracy
 on the latest season with completed games (or `--test-season`). `train.py` uses
-a chronological 80/20 split. Both report accuracy, log loss and Brier score in
-verbose mode, then refit the chosen model on all completed games for forecasts.
+a chronological 80/20 split. Both report accuracy, log loss and Brier score on every run, then refit the chosen model on all completed games for forecasts.
 The selection-set score is validation performance, not an independent final test.
 
 Upcoming predictions use the information currently available. Distant games
@@ -107,3 +106,9 @@ Teams without a published upcoming fixture cannot be listed. Refresh the
 schedule when new fixtures are published. Past fixtures are excluded from the
 console list. Full predictions remain in `predictions.csv`; `--verbose` shows
 the full upcoming schedule and detailed diagnostics.
+
+### Press Run
+
+Run either `train.py` (saved data) or `nba_predictor.py` (refresh data)
+without arguments to see the model results, feature importance, Elo rankings and
+each team's next game. `--predict-next` remains accepted for older commands.
