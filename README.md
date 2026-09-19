@@ -21,7 +21,7 @@ On macOS/Linux, activate with `source .venv/bin/activate` instead.
 
 The first run downloads NBA schedules, creates `nba_features.csv`, evaluates
 models, and writes every upcoming prediction to `predictions.csv`. The console
-shows the selected model and the first five predictions. Elo rankings, feature
+shows the selected model and each team's next scheduled game, with shared matchups listed once. Elo rankings, feature
 importance and full prediction tables appear only with `--verbose`:
 
 ```bash
@@ -93,3 +93,17 @@ Run checks with `python -m unittest -v`.
 Schedule data comes from the [SportsDataverse NBA datasets](https://github.com/sportsdataverse/sportsdataverse-data),
 loaded through [sportsdataverse for Python](https://py.sportsdataverse.org/).
 Predictions are estimates, not guarantees; source coverage and data quality affect results.
+
+### Each team's next game
+
+Both leagues use the same columns: Date, Away, Home, Pick, Confidence.
+There is no five-game limit. Games are sorted chronologically, and the first
+future fixture for every team in the loaded schedule is included. A shared
+fixture appears once. An opponent can appear again when that later fixture is
+another team's next game; this ensures no team's actual next game is skipped.
+
+The next available games can be in the current season or the upcoming season.
+Teams without a published upcoming fixture cannot be listed. Refresh the
+schedule when new fixtures are published. Past fixtures are excluded from the
+console list. Full predictions remain in `predictions.csv`; `--verbose` shows
+the full upcoming schedule and detailed diagnostics.

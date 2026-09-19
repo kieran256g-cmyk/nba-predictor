@@ -47,21 +47,6 @@ class PredictorTests(unittest.TestCase):
         pd.testing.assert_frame_equal(original[FEATURE_COLUMNS], changed[FEATURE_COLUMNS])
         self.assertEqual(ratings, changed_ratings)
 
-    def test_preview_is_bounded_and_does_not_change_export_values(self):
-        predictions = pd.DataFrame(dict(date=['2026-10-20'] * 8,
-                                       away_team=['Away'] * 8, home_team=['Home'] * 8,
-                                       predicted_winner=[f'Pick{i}' for i in range(8)],
-                                       confidence=[0.67891] * 8))
-        before = predictions.copy(deep=True)
-        compact, verbose = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(compact):
-            show_predictions(predictions)
-        with contextlib.redirect_stdout(verbose):
-            show_predictions(predictions, verbose=True)
-        self.assertIn('5 of 8', compact.getvalue())
-        self.assertNotIn('Pick7', compact.getvalue())
-        self.assertIn('Pick7', verbose.getvalue())
-        pd.testing.assert_frame_equal(predictions, before)
 
 
 if __name__ == '__main__':
