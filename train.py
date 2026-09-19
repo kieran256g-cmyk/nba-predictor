@@ -1,4 +1,5 @@
 import argparse
+from confidence_check import show_confidence_check
 import nba_predictor as engine
 from model_output import show_saved_diagnostics
 from console_output import show_predictions
@@ -119,6 +120,8 @@ def train_time_split(df, test_fraction=0.20, verbose=False):
             )
 
     print(f"\nBest model: {best_model_name} (accuracy {best_accuracy:.3f})")
+
+    show_confidence_check(best_model.predict_proba(X_test)[:, 1], y_test)
 
     # Retrain the winning model using all available historical data.
     best_model.fit(

@@ -112,3 +112,20 @@ the full upcoming schedule and detailed diagnostics.
 Run either `train.py` (saved data) or `nba_predictor.py` (refresh data)
 without arguments to see the model results, feature importance, Elo rankings and
 each team's next game. `--predict-next` remains accepted for older commands.
+
+### Confidence check
+
+Every run compares the selected model's confidence with actual wins on its
+chronological validation games, before retraining. The table groups the picked
+team's probability into 50–<60%, 60–<70%, 70–<80%, 80–<90%, and 90–100% bands.
+Home and away picks both count. Each row shows games, wins, average predicted
+confidence, actual win rate, and the difference in percentage points.
+
+For example, an average predicted confidence of 70% and an actual win rate of
+70% means the probabilities matched outcomes in that group. A negative gap means
+overconfidence; a positive gap means underconfidence. Compare with the group's
+average probability, not just its lower bound. Empty groups show a dash, and
+groups below 30 games are flagged as small samples (not a statistical test).
+
+These games also select the best model, so this is a validation diagnostic,
+not an independent final test. The check does not adjust forecast probabilities.

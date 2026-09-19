@@ -32,6 +32,7 @@ The second command also predicts any upcoming unplayed games.
 """
 
 import argparse
+from confidence_check import show_confidence_check
 from datetime import datetime, timezone
 from console_output import show_predictions
 from typing import cast
@@ -1034,6 +1035,8 @@ def train_and_evaluate(feature_df, verbose=False, test_season=None):
 
     if best_model is None:
         raise RuntimeError("No model was available for training.")
+
+    show_confidence_check(best_model.predict_proba(X_test)[:, 1], y_test)
 
     best_model.fit(completed_games[FEATURE_COLUMNS], completed_games["home_winner"].astype(int))
 
