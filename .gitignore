@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.DS_Store
+predictions.csv
+nba_features.csv
+player_stats.csv
